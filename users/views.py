@@ -6,7 +6,7 @@ from rest_framework import status
 from rest_framework.generics import GenericAPIView
 from django.contrib.sites.shortcuts import get_current_site
 from users.utils import Util
-from .serializers import  LoginSerializer, SignupSerializer, UserProfileSerializer
+from .serializers import  LoginSerializer, SignupSerializer, ReverificationSerializer
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken
 from .models import User
@@ -103,12 +103,47 @@ class ResendVerificationEmail(GenericAPIView):
     """
     Resend Email Verification if token has expired
     """
+    serializer_class = ReverificationSerializer
     
     def get(self, request):
         return Response({"message": "Send post request"})
     
-    # def post(self, request):
+    def post(self, request):
+        email = request.data.get("email")
+        if email is None:
+            return Response({"error": "Please provide a valid email address!"}, status=status.HTTP_400_BAD_REQUEST)
+
+        serializer =  self.serializer_class({"email": email})
+        try:
+            user = User.objects.get(email=serializer.data['email'])
+        except User.DoesNotExist:
+            return Response({'error': 'This user does not exist!'}, status=status.HTTP_404_NOT_FOUND)
         
+        if user.is_verified:
+            return Response({"error": "You cannot verify your email twice!"}, status=status.HTTP_400_BAD_REQUEST)
+        
+        if not user.is_active:
+            return Response({"error": "An error has occured!"}, status=status.HTTP_403_FORBIDDEN)
+        
+        token = RefreshToken.for_user(user).access_token
+        current_site = get_current_site(request).domain
+        relative_link = reverse('verify-email')
+        absurl = 'http://' + current_site + relative_link + '?token=' + str(token)
+        if user.email and user.username is None:
+            email_body = f'Hi {user.email}, \n \nUse the link below to verify your account. \n\n{absurl}'
+        else:
+            email_body = f'Hi {user.username}, \n \nUse the link below to verify your account. \n\n{absurl}'
+        data = {
+            "domain": absurl,
+            "email_body": email_body,
+            "email_subject": "Verify your email",
+            "from_email": dotenv_values('.env')['EMAIL_HOST_USERNAME'],
+            "to_email": user.email
+        }
+        
+        Util.send_email(data)
+        return Response({"message": "Sent! Please check your email."})
+    
 
 
 class UserProfile(GenericAPIView):
