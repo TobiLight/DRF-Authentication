@@ -1,0 +1,5 @@
+django
+djangorestframework
+django-cors-headers
+python-dotenv
+djangorestframework-simplejwt==4.6.0
